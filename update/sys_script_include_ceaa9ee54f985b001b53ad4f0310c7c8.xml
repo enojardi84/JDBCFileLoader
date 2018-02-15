@@ -1,0 +1,207 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<record_update table="sys_script_include">
+    <sys_script_include action="INSERT_OR_UPDATE">
+        <access>public</access>
+        <active>true</active>
+        <api_name>x_snc_jdbc_loader.ImportSetUtilPlus</api_name>
+        <client_callable>false</client_callable>
+        <description>Extends ImportSetUtil - new method available similar to 'loadFromXML' which creates a table extending sys_import_set_row and also causes the inserted record to the table to trigger the business rules required for an auto creation of Import Set and Transform Run (if Table has Transform Maps associated)</description>
+        <name>ImportSetUtilPlus</name>
+        <script><![CDATA[var ImportSetUtilPlus = Class.create();
+
+ImportSetUtilPlus.prototype = Object.extendsObject(ImportSetUtil, {
+	
+	initialize : function() {
+		
+	},
+	
+	//Create asynchronous import set
+	createImportSet: function(importSetTable, shortDescription){
+	
+		var importSet = new GlideImportSet(importSetTable);
+		var iSet =  importSet.create();
+	
+		var iSetGr = new GlideRecord("sys_import_set");
+		if(iSetGr.get(iSet)){
+			iSetGr.short_description = shortDescription;
+			iSetGr.setWorkflow(false);
+			iSetGr.autoSysFields(false);
+			iSetGr.update();
+		}
+	
+		return iSet;
+	},
+	
+	
+	//Delete an import set record
+	deleteImportSet: function(importSet){
+		
+		var iSetGr = new GlideRecord("sys_import_set");
+		if(iSetGr.get(importSet)){
+			iSetGr.deleteRecord();
+		}
+	},
+	
+	
+	//Set asynchronous import set to loaded
+	setImportSetLoaded: function(importSet){
+		
+		var iSetGr = new GlideRecord("sys_import_set");
+		if(iSetGr.get(importSet)){
+			iSetGr.state = "loaded";
+			iSetGr.load_completed = gs.nowDateTime();
+			iSetGr.update();
+		}
+		
+		return iSetGr.state == "loaded";
+	},
+	
+	
+	//Calculate and set the import set's load run time:
+	//Load Completed minus Created
+	setImportSetRunTime: function(importSet){
+		
+		var iSetGr = new GlideRecord("sys_import_set");
+		if(iSetGr.get(importSet)){
+			
+			var dateLoaded = new GlideDateTime();
+			var dateCreated = new GlideDateTime();
+			dateCreated.setDisplayValueInternal(iSetGr.sys_created_on);
+			dateLoaded.setDisplayValueInternal(iSetGr.load_completed);
+			
+			var diffSeconds = gs.dateDiff(dateCreated.getDisplayValue(), dateLoaded.getDisplayValue(), true);
+			var diffMilliSeconds = parseInt(diffSeconds) * 1000;
+			
+			iSetGr.load_run_time.setDateNumericValue(diffMilliSeconds);
+			iSetGr.update();
+		}
+		
+	},
+	
+	
+	//Check to see if import set table has any
+	//any transform maps associated
+	hasTransformMap: function(importSetTable){
+	
+		var map = new GlideRecord("sys_transform_map");
+		map.addActiveQuery();
+		map.addQuery("source_table", importSetTable);
+		map.query();
+		
+		return map.hasNext();
+	
+  
+	},
+	
+	
+	//DEPRECATED - Transform all maps for the given import set
+	_transformAllMaps: function(importSet, importLogName){
+	
+	 var iSetGr = new GlideRecord("sys_import_set");
+	 if(iSetGr.get(importSet)){
+		  var importSetRun  = new GlideImportSetRun(importSet);
+		  var importLog 	= new GlideImportLog(importSetRun, importLogName);
+	
+		  var ist = new GlideImportSetTransformer();
+		  ist.setLogger(importLog);
+		  ist.setImportSetRun(importSetRun);
+		  ist.transformAllMaps(iSetGr);
+	 }
+  
+	},
+	
+	
+	//Transform all maps for the given import set
+	//Note: it will run in the background
+	transformAllMaps: function(importSet, importSetTable){
+	
+		
+		var tMap = new GlideRecord('sys_transform_map');
+		tMap.addQuery('source_table', importSetTable);
+		tMap.addQuery('active', true);
+		tMap.orderBy('order');
+		tMap.query();
+		var mList = [];
+		
+		while(tMap.next()){
+		  mList.push(tMap.getUniqueValue());
+		}
+		
+		var t = new GlideImportSetTransformerWorker(importSet, mList.toString());
+		t.setBackground(true);
+		t.start();
+		
+	},
+	
+	
+	//Load import set rows from a XML document
+	//Create/update sys_import_set_row columns (if needed)
+	loadImportSetFromXML : function (xpath_root_node, xmlDoc, tableName, importSet, modifyTableSchema) {
+	    
+		if (modifyTableSchema != undefined && modifyTableSchema == true){
+			var attrs = new Packages.java.util.HashMap();
+			var nodeList = xmlDoc.getNodes(xpath_root_node);
+			this._iterateNodeList(nodeList, null, attrs);
+			
+			// create or update the table schema
+			var tc = new GlideTableCreator(tableName, tableName);
+			tc.setExtends("sys_import_set_row");
+			tc.setColumnAttributes(attrs);
+			tc.update();
+		}
+		
+		var gr = new GlideRecord(tableName);
+		gr.initialize();
+		var nodeList2 = xmlDoc.getNodes(xpath_root_node);
+		this._iterateNodeList(nodeList2, null, null, gr);
+		
+		/* This following if-else statement is the
+		only difference between the OOTB loadFromXML method
+		found in ImportSetUtil Script Include */
+		if(importSet != undefined && importSet != ""){
+			gr.sys_import_set = importSet; //setting an async import for later transformation
+			gr.sys_import_row = this.getRowNumber(tableName, importSet);
+			
+		} else {
+			gr.setWorkflow(true); //this is required so the synchronous row is auto transformed
+		}
+		
+		return gr.insert();
+	},
+	
+	
+	getRowNumber: function (tableName, importSet) {
+		
+		var row = new GlideAggregate(tableName);
+		row.addAggregate("COUNT");
+		row.addQuery("sys_import_set", importSet);
+		row.query();
+		row.next();
+		
+		var count =  parseInt(row.getAggregate("COUNT"));
+		
+		var rowNumber = count == 0 ? count : count++;
+		
+		return rowNumber;
+	},
+	
+	
+	type: "ImportSetUtilPlus"
+  
+});]]></script>
+        <sys_class_name>sys_script_include</sys_class_name>
+        <sys_created_by>jonatan.jardi@servicenow.com</sys_created_by>
+        <sys_created_on>2018-02-15 11:47:51</sys_created_on>
+        <sys_customer_update>false</sys_customer_update>
+        <sys_id>ceaa9ee54f985b001b53ad4f0310c7c8</sys_id>
+        <sys_mod_count>0</sys_mod_count>
+        <sys_name>ImportSetUtilPlus</sys_name>
+        <sys_package display_value="JDBC File Loader (via MID Server)" source="x_snc_jdbc_loader">f238c66d4f585b001b53ad4f0310c7af</sys_package>
+        <sys_policy>read</sys_policy>
+        <sys_replace_on_upgrade>false</sys_replace_on_upgrade>
+        <sys_scope display_value="JDBC File Loader (via MID Server)">f238c66d4f585b001b53ad4f0310c7af</sys_scope>
+        <sys_update_name>sys_script_include_ceaa9ee54f985b001b53ad4f0310c7c8</sys_update_name>
+        <sys_updated_by>jonatan.jardi@servicenow.com</sys_updated_by>
+        <sys_updated_on>2018-02-15 11:47:51</sys_updated_on>
+    </sys_script_include>
+</record_update>

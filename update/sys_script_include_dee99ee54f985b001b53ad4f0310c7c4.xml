@@ -1,0 +1,402 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<record_update table="sys_script_include">
+    <sys_script_include action="INSERT_OR_UPDATE">
+        <access>public</access>
+        <active>true</active>
+        <api_name>x_snc_jdbc_loader.JDBCFileLoader</api_name>
+        <client_callable>false</client_callable>
+        <description>Main class for the JDBC File Loader application</description>
+        <name>JDBCFileLoader</name>
+        <script><![CDATA[var JDBCFileLoader = Class.create();
+JDBCFileLoader.prototype = {
+	
+    initialize: function(fileSource) {
+		
+		this.fileSource = fileSource;
+		
+		this.mid			 = this.fileSource.u_mid_server.name;
+		this.name			= this.fileSource.name;
+		this.id			  = this.fileSource.sys_id;
+		
+		this.filePathName	= this.fileSource.u_file_name.toString().trim();
+		this.fileZipped	  = this.fileSource.u_file_zipped;
+		this.fileSeparator   = this.fileSource.u_file_separator;
+		this.fileHeader	  = this.fileSource.u_header_row.toString();
+		this.fileEncoding	= this.fileSource.u_file_encoding;
+		this.fileAction	  = this.fileSource.u_file_action;
+		this.useDynamicFile  = this.fileSource.u_use_dynamic_file_name;
+		
+		this.useDynamicFileN = this.fileSource.u_use_dynamic_new_file_name;
+		this.newFilePathName = this.fileSource.u_new_file_name.toString().trim();
+		
+		this.importSetTable  = this.fileSource.u_import_set_table.name;
+		this.queryType	   = this.fileSource.u_query;
+		this.sqlStatement	= this.fileSource.u_sql_statement + "";
+		this.maxPayloadECC   = this.fileSource.u_ecc_payload_size;
+		this.fileMatchesLimit= this.fileSource.u_file_matches_limit + "";
+		
+		this._validateParms();
+		
+    },
+	
+	
+	//Create the probe and send to MID Server
+	execute: function(){
+		
+		this.fileSource.u_last_run_status = "running";
+		this.fileSource.u_last_run_results = "";
+		this.fileSource.u_last_run_datetime = gs.nowDateTime();
+		this.fileSource.update();
+		
+		//Create temp Import set to load the data
+		var iUtil = new ImportSetUtilPlus();
+		var iSetID = iUtil.createImportSet(this.importSetTable, "JDBCFileLoader: " + this.name);
+		
+		var probe = new JavascriptProbe(this.mid);
+		probe.setName("JDBCFileLoaderProbe");
+		probe.setSource(this.id);
+		probe.addParameter("file_source_name", this.name);
+		probe.addParameter("file_source_id", this.id);
+		probe.addParameter("file_path_name", this.filePathName);
+		probe.addParameter("file_directory", this.fileDirectory);
+		probe.addParameter("file_name", this.fileName);
+		probe.addParameter("file_extension", this.fileExtension);
+		probe.addParameter("file_separator",this.fileSeparator);
+		probe.addParameter("file_header", this.fileHeader);
+		probe.addParameter("file_zipped", this.fileZipped);
+		probe.addParameter("file_encoding", this.fileEncoding);
+		probe.addParameter("file_action", this.fileAction);
+		probe.addParameter("new_file_path_name", this.newFilePathName);
+		probe.addParameter("query_type", this.queryType);
+		probe.addParameter("sql_statement", this.sqlStatement);
+		probe.addParameter("import_set_table",this.importSetTable);
+		probe.addParameter("import_set_id", iSetID);
+		probe.addParameter("payload_max_size", this.maxPayloadECC);
+		probe.addParameter("file_matches_limit", this.fileMatchesLimit);
+		probe.addParameter("skip_sensor", "true");
+		probe.create();
+		
+		gs.eventQueue("jdbc_file_loader.load_started", this.fileSource);
+		
+	},
+		
+	
+	/*Field and parameter validations methods */
+	/*******************************************/
+	
+	_validateParms: function(){
+		
+		this._validateFileName();
+		this._validateSQL();
+		this._extractFilePathName(this.filePathName);
+		
+	},
+	
+	_extractFilePathName: function(fullPathName) {
+		
+		var slash = (fullPathName.indexOf("/") != -1) ? "/" : "\\";
+		
+		//UNC path fix
+		if(fullPathName.indexOf("\\\\") != -1){
+			slash = "\\\\";
+		}
+		
+		var pathParts = fullPathName.split(slash);
+		var fileName = pathParts.pop();
+		var fileParts = fileName.split(".");
+		
+		this.fileDirectory	= pathParts.join(slash) + slash;
+	    this.fileExtension    = fileParts.pop();
+		this.fileName		 = fileParts.join(".");
+	},
+	
+	_validateFileName: function(){
+		
+		var tempScript = "var answer = '';\n";
+		tempScript += "var current = new GlideRecord('u_jdbc_file_source');\n";
+		tempScript += "current.get('" + this.id  + "');\n";	
+		
+		if(this.useDynamicFile){
+			GlideEvaluator.evaluateString(tempScript + this.fileSource.u_dynamic_file_name);
+			this.filePathName = answer;
+			if(answer != "") {
+				this.fileSource.u_file_name = answer;
+			}
+	
+		}
+		
+		if(this.useDynamicFileN){
+			GlideEvaluator.evaluateString(tempScript + this.fileSource.u_dynamic_new_file_name);
+			this.newFilePathName = answer;
+			if(answer != "") {
+				this.fileSource.u_new_file_name = answer;
+			}
+
+		}
+		
+	},
+	
+	_validateSQL: function(){
+		
+		var sql = this.sqlStatement.toString().replace(/--.*/g, "");
+		sql = sql.replace(/\s/g, "  ");
+		this.sqlStatement = sql.trim();
+		
+	},
+	
+    type: 'JDBCFileLoader'
+};
+
+
+//Reference qualifer for the Import Set Table
+JDBCFileLoader.importSetRefQual = function(){
+	
+	//Ref qual to only show import tables	
+	var t = new TableUtils("sys_import_set_row");
+	var ta = t.getTableExtensions();
+	var jst = j2js(ta);
+	return "nameIN" + jst + "";
+	
+	
+};
+
+//Once-off setup of the application
+JDBCFileLoader.setup = function(){
+
+	var probe = new GlideRecord("ecc_queue");
+	probe.name = "ecc_agent_jar";
+	probe.source = "FileChange";
+	probe.topic = "SystemCommand";
+	probe.agent = "mid.server.*";
+	probe.queue = "output";
+	probe.insert();
+	
+	var module = new GlideRecord("sys_app_module");
+	module.addEncodedQuery("application.name=JDBC File Loader^title=Setup");
+	module.query();
+	if(module.next()){
+		module.active = false;
+		module.update();
+	}
+	
+	gs.print(gs.getMessage("jdbc_file_loader.setup"));
+		
+};
+
+
+//Transform (if mode is load_transform) the import
+//set, as well as setting the time and run time of loading
+JDBCFileLoader.transformImportSet = function(importSetTable, importSetID, importMode) {
+	
+	var isUtil = new ImportSetUtilPlus();
+	
+	isUtil.setImportSetLoaded(importSetID);
+	isUtil.setImportSetRunTime(importSetID);
+	if(importMode == "load_transform") {
+		isUtil.transformAllMaps(importSetID, importSetTable);
+	}
+	
+};
+
+
+//Delete a given import set by its sys_id
+JDBCFileLoader.deleteImportSet = function(importSetID) {
+	
+	var isUtil = new ImportSetUtilPlus();
+	isUtil.deleteImportSet(importSetID);
+	
+};
+
+
+//Check to see if the ECC output is in a "cancellable"
+//state, meaning it hasn't startede processing already
+JDBCFileLoader.canCancel = function(fileSource){
+	
+	var ecc = new GlideRecord("ecc_queue");
+	ecc.addQuery("name", "JDBCFileLoaderProbe");
+	ecc.addQuery("topic", "JavascriptProbe");
+	ecc.addQuery("source", fileSource.getUniqueValue());
+	ecc.addQuery("queue", "output");
+	ecc.addQuery("state", "ready");
+	ecc.query();
+	
+	return ecc.hasNext() || fileSource.u_last_run_status == "starting";
+	
+};
+
+
+//Attempt to cancel the current running job
+JDBCFileLoader.cancel = function(fileSource){
+	
+	//Double check that record still
+	//can be cancelled
+	if(!JDBCFileLoader.canCancel(fileSource)){
+		return false;
+	}
+	
+	//Get all output ECC for this job
+	var ecc = new GlideRecord("ecc_queue");
+	ecc.addQuery("name", "JDBCFileLoaderProbe");
+	ecc.addQuery("topic", "JavascriptProbe");
+	ecc.addQuery("source", fileSource.getUniqueValue());
+	ecc.addQuery("queue", "output");
+	ecc.addQuery("state", "ready");
+	ecc.query();
+	while(ecc.next()){
+		
+		//delete temp import set
+		var importSetID = JDBCFileLoader.getAttributeValueFromXML(ecc.getValue("payload"), "/parameters", "import_set_id");
+		JDBCFileLoader.deleteImportSet(importSetID);
+		
+		//Set output to processed
+		ecc.state = "processed";
+		ecc.processed = gs.nowDateTime();
+		ecc.update();
+	}
+	
+	//set source to "cancelled"
+	fileSource.u_last_run_status = "cancelled";
+	fileSource.u_last_run_results = gs.nowDateTime() + gs.getMessage("jdbc_file_loader.job_cancelled_by") + gs.getUserName();
+	fileSource.update();
+	
+	return true;
+	
+};
+
+
+//Searches and returns the value of a given parameter from
+//an ECC queue payload XML
+JDBCFileLoader.getAttributeValueFromXML = function (payload, xPath, parameterName){
+	
+	var xmldoc = new XMLDocument(payload);
+	var nodeList = xmldoc.getNode(xPath);
+	var value = "";
+	
+	//Traverse the parameter's attributes and get its
+	//second attribute value, which is expected to be 'value'
+	for(i=0; i < nodeList.getLength(); i++){
+	
+		var attribute = "" + nodeList.item(i).getAttributes().item(0).getNodeValue();
+		
+		if(attribute == parameterName) {
+
+			value = "" + nodeList.item(i).getAttributes().item(1).getNodeValue();
+			break;
+		}
+	}
+	
+	return value;
+	
+};
+
+
+
+//Process the ECC queue results from the probe.
+//Load the data to an import set
+JDBCFileLoader.runSensor = function(name, source, payload){
+	
+	var sourceRec = new GlideRecord("u_jdbc_file_source");
+	sourceRec.get(source);
+	
+	try {
+		
+		//First process the actual response from the probe
+		if(name == "JDBCFileLoaderProbe"){
+			
+			var error = gs.getXMLText(payload, "/results/@error");
+			var output = gs.getXMLText(payload, "/results/result/output");
+			
+			var iSetID = JDBCFileLoader.getAttributeValueFromXML(payload, "/results/parameters", "import_set_id");
+			
+			//If we have any error, delete the temp import set
+			//and then update the file source with error details
+			if(error != null && error != "") {
+				
+				error = error.toString().replace(/\n.*/gm,"");
+				
+				gs.eventQueue("jdbc_file_loader.load_error", sourceRec, error);
+				JDBCFileLoader.deleteImportSet(iSetID);
+				sourceRec.u_last_run_status = "error";
+				sourceRec.u_last_run_results = error;
+				sourceRec.update();
+				
+				return error;
+			
+			//Otherwise, continue processing the load
+			//and update the file source with result
+			} else {
+				
+				var resultMsg = "" + output.toString().replace(/\w* JDBC[^.]*./g,"");
+				
+				sourceRec.u_last_run_status = "ok";
+				sourceRec.u_last_run_results = resultMsg;
+				
+				//Delete temp import set if 0 rows returned
+				if(resultMsg.indexOf("0 row(s)") == 0){
+					JDBCFileLoader.deleteImportSet(iSetID);
+					
+				//otherwise queue the complete event
+				//Note: there's a script action that reacts
+				//to this event to transform the import set
+				} else {
+					gs.eventQueue("jdbc_file_loader.load_complete", sourceRec, resultMsg, iSetID);
+				}
+				
+				sourceRec.update();
+				return "";
+			}
+		}
+		
+		//The following code is to process the actual
+		//output data from JDBCFileLoaderProbeResult entries		
+		var importSetID = JDBCFileLoader.getAttributeValueFromXML(payload, "/results/parameters", "import_set_id");
+		var importSetTable = JDBCFileLoader.getAttributeValueFromXML(payload, "/results/parameters", "import_set_table");
+
+		
+		var xmlDoc = new XMLDocument(payload);
+		
+		var nodes = xmlDoc.getNodes("/results/result/*");
+		var numNodes = nodes.getLength();
+		var isUtil = new ImportSetUtilPlus();
+
+		for(var i=1 ; i<= numNodes; i++){ 
+			
+			var xPath = "/results/result/" + importSetTable + "[" + i + "]/*";
+			
+			//Modify schema for first row is set to "some"  OR for all rows if set to "all"
+			var modifySchema = (sourceRec.u_modify_table_schema == "some" && i == 1) || sourceRec.u_modify_table_schema == "all";
+			
+			isUtil.loadImportSetFromXML(xPath, xmlDoc, importSetTable, importSetID, modifySchema);
+		}
+		
+		
+	} catch(e){
+		
+		var exceptionStr = e.toString().replace(/\n.*/gm,"");
+		sourceRec.u_last_run_status = "error";
+		sourceRec.u_last_run_results = exceptionStr;
+		sourceRec.update();
+		
+		gs.eventQueue("jdbc_file_loader.load_error", sourceRec, exceptionStr);
+		
+		return e;
+	}
+	
+	return "";
+};]]></script>
+        <sys_class_name>sys_script_include</sys_class_name>
+        <sys_created_by>jonatan.jardi@servicenow.com</sys_created_by>
+        <sys_created_on>2018-02-15 11:44:35</sys_created_on>
+        <sys_customer_update>false</sys_customer_update>
+        <sys_id>dee99ee54f985b001b53ad4f0310c7c4</sys_id>
+        <sys_mod_count>1</sys_mod_count>
+        <sys_name>JDBCFileLoader</sys_name>
+        <sys_package display_value="JDBC File Loader (via MID Server)" source="x_snc_jdbc_loader">f238c66d4f585b001b53ad4f0310c7af</sys_package>
+        <sys_policy>read</sys_policy>
+        <sys_replace_on_upgrade>false</sys_replace_on_upgrade>
+        <sys_scope display_value="JDBC File Loader (via MID Server)">f238c66d4f585b001b53ad4f0310c7af</sys_scope>
+        <sys_update_name>sys_script_include_dee99ee54f985b001b53ad4f0310c7c4</sys_update_name>
+        <sys_updated_by>jonatan.jardi@servicenow.com</sys_updated_by>
+        <sys_updated_on>2018-02-15 11:48:14</sys_updated_on>
+    </sys_script_include>
+</record_update>

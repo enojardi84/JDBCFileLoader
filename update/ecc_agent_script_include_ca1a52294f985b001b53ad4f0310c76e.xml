@@ -1,0 +1,482 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<record_update sys_domain="global" table="ecc_agent_script_include">
+    <ecc_agent_script_include action="INSERT_OR_UPDATE">
+        <active>true</active>
+        <description>Probe containing functionality to perform JDBC query on flat files</description>
+        <name>JDBCFileLoaderScopedProbe</name>
+        <script><![CDATA[var JDBCFileLoaderScopedProbe = Class.create();
+
+JDBCFileLoaderScopedProbe.prototype = Object.extendsObject(AProbe, {
+
+    initialize : function(probe) {
+		
+		this.sourceName   = probe.getParameter("file_source_name");
+		this.sourceID	 = probe.getParameter("file_source_id");
+
+		this.filePath	 = probe.getParameter("file_path_name");
+		this.fileDir	  = probe.getParameter("file_directory");
+		this.fileName	 = probe.getParameter("file_name") + "";
+		this.fileExt	  = probe.getParameter("file_extension");
+		this.fileZip	  = probe.getParameter("file_zipped");
+		this.fileChar	 = probe.getParameter("file_encoding");
+		this.separator	= probe.getParameter("file_separator");
+		this.header	   = probe.getParameter("file_header");
+		this.fileAction   = probe.getParameter("file_action");
+		this.newFilePath  = probe.getParameter("new_file_path_name");
+
+		this.sqlStatement = probe.getParameter("sql_statement") + "";
+		this.queryType	= probe.getParameter("query_type");
+		this.importSet	= probe.getParameter("import_set_table");
+		this.importSetID  = probe.getParameter("import_set_id");
+
+		this.FILES_MATCHES_LIMIT = parseInt(probe.getParameter("file_matches_limit") + "");
+		this.MAX_ECC_CHARS	   =  parseInt(probe.getParameter("payload_max_size") + "");
+		this.DRIVER_CONN_STRING  = "jdbc:relique:csv:";
+		this.ZIPPED			  = this.fileZip == "true";
+
+		this.fileMatches = this.getFileNameMatches();
+		this.xmlDoc = "";
+		
+    },
+	
+	//Override run method from AProbe
+	run: function(){
+		
+		//If we have at least one file
+		//then execute query
+		if (this.fileMatches.length > 0){
+			this.executeProbe();
+		}
+	},
+	
+
+	//Executes the main logic for the probe, which includes
+	//the execution of the SQL query to the file
+    executeProbe : function() {
+		
+		
+		var conn = undefined;
+		var stmt = undefined;
+		var query = undefined;
+		
+		try {
+			
+			var Statement	 = Packages.java.sql.Statement;
+			var ResultSet	 = Packages.java.sql.ResultSet;
+			var Connection	= Packages.java.sql.DriverManager;
+			var CsvDriver	 = Packages.org.relique.jdbc.csv.CsvDriver;
+			var outputMessage = this.fileMatches.length + " file(s) processed:\n\n";
+			
+			//Iterate through file matches
+			for(var i=0; i < this.fileMatches.length; i++) {
+
+				this.fileName = this.fileMatches[i] + "";
+					
+				this.fullPathName	 = (this.ZIPPED) ? this.fileDir + this.fileName + ".zip" : this.fileDir + this.fileName + "." + this.fileExt;
+				this.connectionCSV	= this.DRIVER_CONN_STRING + this.fileDir;
+				this.connectionZIP	= this.DRIVER_CONN_STRING + "zip:" + this.fileDir + this.fileName + ".zip";
+
+				this.connectionString = (!this.ZIPPED) ? this.connectionCSV : this.connectionZIP;
+					
+				//Set connection and execute query
+				var props = this._getDriverProperties();
+				conn = new Connection.getConnection(this.connectionString, props);
+				stmt = conn.createStatement();
+				query = (this.queryType == "sql") ? this._replaceFilenameVariable(this.sqlStatement, this.fileName) : "SELECT *  FROM \"" + this.fileName + "\"";
+
+				//LIMIT to 20 rows only if set
+				if(this.queryType == "20"){
+					query+= " LIMIT 20";
+				}
+				
+				var rs = stmt.executeQuery(query);
+				var countProbes = 0;
+				var countRows = 0;
+					
+				this._initXML();
+				
+				//itirate through resultset
+				while (rs.next()){
+					
+					this.xmlDoc += "<" + this.importSet + ">";
+
+					//Traverse the columns and create child node elements
+					for(j=1; j <= rs.getMetaData().getColumnCount(); j++){
+					  
+						var attribute = this._escapeAttribute(rs.getMetaData().getColumnName(j)).toLowerCase();
+
+						//If we have no headers defined...
+						if(this.header == "0"){
+						  attribute = this._escapeAttribute("column" + j);
+						}
+
+						var value = this._escapeXML(rs.getString(j) + "");
+
+						this.xmlDoc+= "<" + attribute + ">" + value +  "</" + attribute + ">";
+
+					} //end for
+
+					this.xmlDoc += "</" + this.importSet + ">";
+					countRows++;
+
+					//If payload exceeds character count then create a new result ECC
+					if (this.xmlDoc.length >= this.MAX_ECC_CHARS){
+					  
+					  this._processXML();
+					  this._initXML();
+					  countProbes++;
+					}
+
+				} //END while loop
+				
+
+				//If resulset was too small then create 1 result ECC
+				if(this.xmlDoc.indexOf("/result") == -1){
+					this._processXML();
+					countProbes++;
+				}
+
+				//Close connections
+				query.close();
+				stmt.close();
+				conn.close();
+				
+				//Build the output message and do
+				//file action if it was selected
+
+				outputMessage+= this.fullPathName + ": " + countRows + " row(s) extracted  ";
+				outputMessage+= countProbes + " JDBCFileLoaderProbeResult record(s) created.\n";
+				
+				if(this.fileAction != "") {
+					var fileActionResult = this.actionFile(this.fileAction);
+					outputMessage+= this.fullPathName + ": file action '" + this.fileAction;
+					
+					if(fileActionResult){
+						outputMessage+= "' was successful\n";
+					} else {
+						outputMessage+= "' was unsuccessful\n";
+					}
+				}
+			
+			}  //END for loop
+			
+			//Set the output for the ECC record
+			probe.createOutputResult(outputMessage);
+			
+		} catch (e){
+			probe.setError(e);
+
+			if (query) query.close();
+			if (stmt) stmt.close();
+			if (conn) conn.close();
+
+		}
+		
+    },
+	
+	
+	//Attempts to search and return the number
+	//of matched files (if a wildcard was provided)
+	//Otherwise return the filename sent
+	getFileNameMatches: function(){
+		
+		var files = [];
+		
+		//Only do a search if there's a (*)
+		//wildcard in the file name...
+		if(this.fileName.indexOf("*") != -1){
+			
+			try {
+				
+				var fileMatches = this.searchFiles();
+
+				//If we got 0 matches, then we can't continue
+				//Set probe to error
+				if (fileMatches.length == 0) {
+
+					probe.setError("Error: 0 files matched the filename wildcard criteria.");
+					return files;
+
+				//If we got files within the matches limit, then continue...
+				} else if(fileMatches.length <= this.FILES_MATCHES_LIMIT){
+					
+					for(var i=0; i < fileMatches.length; i++){
+
+						var fileParts = fileMatches[i].split(".");
+						files.push(fileParts[0] + "");
+					}
+					
+					return files;
+				
+				//Otherwise, set probe to error
+				//Since we got too many matches
+				} else {
+					
+					var fileList = fileMatches.toString().replace(/,/g,", ");
+					var erroMsg = "Error: " + fileMatches.length + " files matched the filename wildcard criteria: " + fileList;
+					erroMsg+= ". File match limit is set to " + this.FILES_MATCHES_LIMIT + ".";
+
+					probe.setError(erroMsg);
+					return files;
+				}
+				
+			} catch (e){
+				probe.setError(e);
+				return [];
+			}
+		}
+		
+
+		files.push(this.fileName + "");
+		return files;
+	},
+	
+	
+	//Search wildcarded file name in directory.
+	//Return a list array of matches
+	searchFiles: function() {
+		
+		var directory = this.fileDir;
+		var fileName = this.fileName + "";
+		var fileExtension = (this.ZIPPED) ? "zip" : this.fileExt + "";
+
+		var regexToFind = "";
+
+		//See if the wild card was in the middle of the file
+		var wildcardParts = fileName.split("*");
+		if(wildcardParts.length == 2) {
+			regexToFind = wildcardParts[0] + ".*?" + wildcardParts[1] + "." + fileExtension;
+		} 
+
+		//Or if the wild card was at the beginning
+		else if(fileName.indexOf("*") == 0 ) {
+
+			fileName = fileName.replace(/\*+/g, "");
+			regexToFind = ".*?"  + fileName + "." + fileExtension;
+
+		//Then it must be at the end of the file name
+		} else {
+			fileName = fileName.replace(/\*+/g, "");
+			regexToFind = fileName + ".*?\." + fileExtension;
+		}
+		
+		var folder = new Packages.java.io.File(directory);
+		var file = folder.listFiles();
+		var files = [];
+		
+		for (i=0; i < file.length; i++) {
+		
+			var f = new Packages.java.io.File(directory + file[i]);
+			
+			if(f.getName().match(/[^\\]*\.(\w+)$/)) {
+				
+				if(f.getName().match(regexToFind) != null)
+					 files.push(f.getName() + "");
+			}
+		}
+		
+		return files;
+	},
+
+	
+	//Takes an action based on the argument of:
+	//copy, move-rename or delete
+    actionFile: function (action) {
+
+		var File = Packages.java.io.File;
+		var input = undefined;
+		var output = undefined;
+
+		try{
+	
+			var file = new File(this.fullPathName);
+			var newFile = this._replaceFilenameVariable(this.newFilePath, this.fileName);
+	
+			if (file.exists()){
+	
+				if(action == "move-rename"){
+					
+					return file.renameTo(new File(newFile));
+				}
+				
+				else if(action == "delete"){
+					return file["delete"](); //Rhino has an issue with delete()...
+				}
+				
+				//Unfortunately java 1.6 does not have Paths and Files
+				//Classes yet, so the copying logic is a bit lenghty
+				else if(action == "copy"){
+					
+					input = new Packages.java.io.FileInputStream(this.fullPathName) ;
+					output = new Packages.java.io.FileOutputStream(newFile);
+					
+					var buf  = new Packages.java.lang.reflect.Array.newInstance(Packages.java.lang.Byte.TYPE, 1024);
+					var bytesRead;
+					
+					while ((bytesRead = input.read(buf)) > 0) {
+						output.write(buf, 0, bytesRead);
+					}
+					
+					input.close();
+					output.close();
+					
+					var copiedFile = new Packages.java.io.File(newFile);
+					
+					return copiedFile.exists();
+				}
+			}
+			
+			return false;
+	
+		} catch(e){
+			probe.setError(e);
+			if (input) input.close();
+			if (output) output.close();
+
+		}
+
+    },
+	
+	
+	//Set and return SQL driver properties
+	_getDriverProperties: function() {
+		
+		var props = new Packages.java.util.Properties();
+		
+		//Refer to http://csvjdbc.sourceforge.net/doc.html
+		//to see what each property does
+		props.put("separator", this.separator);
+		props.put("fileExtension",  "." + this.fileExt);
+		props.put("charset", "ISO-8859-1");
+		props.put("trimHeaders", true);
+		props.put("defectiveHeaders", true);
+		
+		//If header is not zero then set where to start
+		//reading the file
+		//If header is zero then set to read 
+		//the file without header row but from line 1
+		if(this.header != "0") {
+			
+			var header = parseInt(this.header + "") - 1;
+			props.put("skipLeadingLines", header + "");
+		}else{
+			
+			props.put("suppressHeaders", "true");
+			
+		}
+
+				
+		return props;
+	},
+	
+	
+	//Initialize the xmlDoc for the JDBCFileLoaderProbeResults
+	//ECC input entries
+	_initXML: function() {
+	
+		this.xmlDoc = "<?xml version=\"1.0\" encoding=\"" + this.fileChar + "\"?>";
+		this.xmlDoc+= "<results><result>";
+	},
+	
+	
+	//Process the xmlDoc for the JDBCFileLoaderProbeResult
+	//ECC input entries
+	_processXML: function(){
+				 
+		this.xmlDoc+= "</result>";
+		this.xmlDoc+= "<parameters>";
+		this.xmlDoc+= "<parameter name=\"import_set_table\" value=\"" + this.importSet +"\"/>";
+		this.xmlDoc+= "<parameter name=\"import_set_id\" value=\"" + this.importSetID +"\"/>";
+		this.xmlDoc+= "<parameter name=\"skip_sensor\" value=\"true\"/>";
+		this.xmlDoc+= "</parameters>";
+		this.xmlDoc+= "</results>";
+		
+		this._createECCInput(this.xmlDoc, "Result");
+	},
+	
+	
+	//Escape invalid characters for node attributes names
+	_escapeAttribute : function (_attribute) {
+		
+		var attribute = "" + _attribute;
+		
+		 var attr = "u_" + attribute.toLowerCase().replace(/[^a-zA-Z0-9_]/g, "_");
+		
+		if (attr.length > 30) { // g_max_table_length = 30	
+			attr = attr.substring(0, 30);
+		}
+		
+		return attr;
+		
+	},
+	
+	
+	//Replace the ${filename} variable with the actual
+	//filename. Handy when using wildcard and processing multiple
+	//files and a file action of rename/copy/move is required.
+	_replaceFilenameVariable: function (str, fileName) {
+		
+		var _fileName = fileName + "";
+		var _str = str + "";
+		
+		_str = _str.replace(/\$\{filename\}/g, _fileName);
+		
+		return _str;
+		
+	},
+	
+	
+	//Escape special XML characters for node values
+	_escapeXML : function (value) {
+		
+		var _value = value;
+		
+		_value = _value.replace(/&/g, "&amp;");
+		_value = _value.replace(/\"/g, "&quot;");
+		_value = _value.replace(/\'/g, "&apos;");
+		_value = _value.replace(/</g, "&lt;");
+		_value = _value.replace(/>/g, "&gt;");
+		
+		return _value;
+	},
+	
+	
+	//Create probe-independent ECC queue input record
+	_createECCInput: function(payload, nameSuffix){
+	
+		var ECC = Packages.com.glideapp.ecc.ECCMessage;
+		var Events = Packages.com.service_now.mid.services.Events;
+		var SendMessageEvent = Packages.com.service_now.mid.events.SendMessageEvent;
+	
+		var msg = new ECC();
+		msg.setAgent(probe.getParameter("agent"));
+		msg.setName(probe.getParameter("name") + nameSuffix);
+		msg.setTopic(probe.getParameter("topic"));
+		msg.setPayload(payload);
+		msg.setSource(this.sourceID);
+		
+		Events.fire(new SendMessageEvent(msg));
+	
+	},
+    
+           
+    type: "JDBCFileLoaderScopedProbe"
+});]]></script>
+        <sys_class_name>ecc_agent_script_include</sys_class_name>
+        <sys_created_by>jonatan.jardi@servicenow.com</sys_created_by>
+        <sys_created_on>2018-02-15 11:45:55</sys_created_on>
+        <sys_customer_update>false</sys_customer_update>
+        <sys_domain>global</sys_domain>
+        <sys_id>ca1a52294f985b001b53ad4f0310c76e</sys_id>
+        <sys_mod_count>1</sys_mod_count>
+        <sys_name>JDBCFileLoaderScopedProbe</sys_name>
+        <sys_overrides/>
+        <sys_package display_value="JDBC File Loader (via MID Server)" source="x_snc_jdbc_loader">f238c66d4f585b001b53ad4f0310c7af</sys_package>
+        <sys_policy/>
+        <sys_replace_on_upgrade>false</sys_replace_on_upgrade>
+        <sys_scope display_value="JDBC File Loader (via MID Server)">f238c66d4f585b001b53ad4f0310c7af</sys_scope>
+        <sys_update_name>ecc_agent_script_include_ca1a52294f985b001b53ad4f0310c76e</sys_update_name>
+        <sys_updated_by>jonatan.jardi@servicenow.com</sys_updated_by>
+        <sys_updated_on>2018-02-15 11:48:47</sys_updated_on>
+    </ecc_agent_script_include>
+</record_update>
