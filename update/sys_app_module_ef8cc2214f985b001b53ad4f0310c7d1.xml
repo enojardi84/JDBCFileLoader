@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<record_update sys_domain="global" table="sys_app_module">
+    <sys_app_module action="INSERT_OR_UPDATE">
+        <active>true</active>
+        <application display_value="JDBC File Loader (via MID Server)">23f98aad4f585b001b53ad4f0310c778</application>
+        <assessment/>
+        <content_page/>
+        <device_type/>
+        <filter table="sys_ui_message">applicationSTARTSWITHjdbc_file_loader^EQ<item endquery="false" field="application" goto="false" newquery="false" operator="STARTSWITH" or="false" value="jdbc_file_loader"/>
+            <item endquery="true" field="" goto="false" newquery="false" operator="=" or="false" value=""/>
+        </filter>
+        <hint/>
+        <homepage/>
+        <image/>
+        <link_type>LIST</link_type>
+        <map_page/>
+        <mobile_title>Messages</mobile_title>
+        <mobile_view_name>Mobile</mobile_view_name>
+        <name>sys_ui_message</name>
+        <order>800</order>
+        <override_menu_roles>false</override_menu_roles>
+        <query/>
+        <report/>
+        <roles/>
+        <survey/>
+        <survey_overwrite>true</survey_overwrite>
+        <sys_class_name>sys_app_module</sys_class_name>
+        <sys_created_by>jonatan.jardi@servicenow.com</sys_created_by>
+        <sys_created_on>2018-02-15 10:46:31</sys_created_on>
+        <sys_customer_update>false</sys_customer_update>
+        <sys_domain>global</sys_domain>
+        <sys_domain_path>/</sys_domain_path>
+        <sys_id>ef8cc2214f985b001b53ad4f0310c7d1</sys_id>
+        <sys_mod_count>0</sys_mod_count>
+        <sys_name>Messages</sys_name>
+        <sys_overrides/>
+        <sys_package display_value="JDBC File Loader (via MID Server)" source="x_snc_jdbc_loader">f238c66d4f585b001b53ad4f0310c7af</sys_package>
+        <sys_policy/>
+        <sys_replace_on_upgrade>false</sys_replace_on_upgrade>
+        <sys_scope display_value="JDBC File Loader (via MID Server)">f238c66d4f585b001b53ad4f0310c7af</sys_scope>
+        <sys_update_name>sys_app_module_ef8cc2214f985b001b53ad4f0310c7d1</sys_update_name>
+        <sys_updated_by>jonatan.jardi@servicenow.com</sys_updated_by>
+        <sys_updated_on>2018-02-15 10:46:31</sys_updated_on>
+        <timeline_page/>
+        <title>Messages</title>
+        <uncancelable>false</uncancelable>
+        <view_name/>
+        <window_name/>
+    </sys_app_module>
+</record_update>

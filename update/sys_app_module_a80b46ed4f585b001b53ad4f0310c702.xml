@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<record_update sys_domain="global" table="sys_app_module">
+    <sys_app_module action="INSERT_OR_UPDATE">
+        <active>true</active>
+        <application display_value="JDBC File Loader (via MID Server)">23f98aad4f585b001b53ad4f0310c778</application>
+        <assessment/>
+        <content_page/>
+        <device_type/>
+        <filter/>
+        <hint>One time setup. This module will be disabled automatically.</hint>
+        <homepage/>
+        <image/>
+        <link_type>SCRIPT</link_type>
+        <map_page/>
+        <mobile_title>Setup</mobile_title>
+        <mobile_view_name>Mobile</mobile_view_name>
+        <name/>
+        <order>0</order>
+        <override_menu_roles>false</override_menu_roles>
+        <query>JDBCFileLoader.setup();</query>
+        <report/>
+        <roles/>
+        <survey/>
+        <survey_overwrite>true</survey_overwrite>
+        <sys_class_name>sys_app_module</sys_class_name>
+        <sys_created_by>jonatan.jardi@servicenow.com</sys_created_by>
+        <sys_created_on>2018-02-15 10:39:37</sys_created_on>
+        <sys_customer_update>false</sys_customer_update>
+        <sys_domain>global</sys_domain>
+        <sys_domain_path>/</sys_domain_path>
+        <sys_id>a80b46ed4f585b001b53ad4f0310c702</sys_id>
+        <sys_mod_count>0</sys_mod_count>
+        <sys_name>Setup</sys_name>
+        <sys_overrides/>
+        <sys_package display_value="JDBC File Loader (via MID Server)" source="x_snc_jdbc_loader">f238c66d4f585b001b53ad4f0310c7af</sys_package>
+        <sys_policy/>
+        <sys_replace_on_upgrade>false</sys_replace_on_upgrade>
+        <sys_scope display_value="JDBC File Loader (via MID Server)">f238c66d4f585b001b53ad4f0310c7af</sys_scope>
+        <sys_update_name>sys_app_module_a80b46ed4f585b001b53ad4f0310c702</sys_update_name>
+        <sys_updated_by>jonatan.jardi@servicenow.com</sys_updated_by>
+        <sys_updated_on>2018-02-15 10:39:37</sys_updated_on>
+        <timeline_page/>
+        <title>Setup</title>
+        <uncancelable>false</uncancelable>
+        <view_name/>
+        <window_name/>
+    </sys_app_module>
+</record_update>

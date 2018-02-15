@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<record_update table="ua_table_licensing_config">
+    <ua_table_licensing_config action="INSERT_OR_UPDATE">
+        <is_fulfillment>false</is_fulfillment>
+        <license_condition/>
+        <license_model>none</license_model>
+        <license_roles/>
+        <name>x_snc_jdbc_loader_data_source</name>
+        <op_delete>true</op_delete>
+        <op_insert>true</op_insert>
+        <op_update>true</op_update>
+        <owner_condition/>
+        <sys_class_name>ua_table_licensing_config</sys_class_name>
+        <sys_created_by>jonatan.jardi@servicenow.com</sys_created_by>
+        <sys_created_on>2018-02-15 10:34:30</sys_created_on>
+        <sys_customer_update>false</sys_customer_update>
+        <sys_id>b7f98aad4f585b001b53ad4f0310c7be</sys_id>
+        <sys_mod_count>0</sys_mod_count>
+        <sys_name>x_snc_jdbc_loader_data_source</sys_name>
+        <sys_package display_value="JDBC File Loader (via MID Server)" source="x_snc_jdbc_loader">f238c66d4f585b001b53ad4f0310c7af</sys_package>
+        <sys_policy/>
+        <sys_replace_on_upgrade>false</sys_replace_on_upgrade>
+        <sys_scope display_value="JDBC File Loader (via MID Server)">f238c66d4f585b001b53ad4f0310c7af</sys_scope>
+        <sys_update_name>ua_table_licensing_config_b7f98aad4f585b001b53ad4f0310c7be</sys_update_name>
+        <sys_updated_by>jonatan.jardi@servicenow.com</sys_updated_by>
+        <sys_updated_on>2018-02-15 10:34:30</sys_updated_on>
+    </ua_table_licensing_config>
+</record_update>
